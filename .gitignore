@@ -1,2 +1,6 @@
 __pycache__/
 checkpoints/
+.venv/
+.env/
+env/
+venv/

@@ -170,7 +170,7 @@ class Data(object):
 
         print('Done, read %d sources' %(source_count))
 
-    def display_image(self, index, show_sources=False):
+    def display_image(self, index, show_sources=False, predictions=None):
         """
         Opens a window displaying the image at the given index.
 
@@ -179,22 +179,32 @@ class Data(object):
         show_sources
             If true, a red dot will be drawn in the location of each labeled
             source.
+        predictions
+            An array of [x, y] prediction locations to show.
         """
         import numpy as np
         import cv2 as cv
 
         image = self.maps[index][0]
 
+        # convert to RGB
+        image = np.transpose(np.tile([image], (3, 1, 1)), [1, 2, 0]).copy()
+
         if show_sources:
-            image = np.transpose(np.tile([image], (3, 1, 1)), [1, 2, 0])
             for x,y in self.coords[index]:
-                image[y][x] = [0.0, 0.0, 1.0]
+                image[y][x] = [0.0, 1.0, 1.0]
+                cv.circle(image, (int(x), int(y)), 3, (0, 255, 255))
+
+        if predictions is not None:
+            for x,y in predictions:
+                image[int(y)][int(x)] = [0.0, 0.0, 1.0]
+                cv.circle(image, (int(x), int(y)), 3, (0, 0, 255))
 
         cv.namedWindow('ppn-image', cv.WINDOW_AUTOSIZE)
         cv.imshow('ppn-image', image)
         cv.waitKey()
 
-    def save_image(self, filename, index, show_sources=False):
+    def save_image(self, filename, index, show_sources=False, predictions=None):
         """
         Saves the image at the given index to disk.
 
@@ -205,15 +215,25 @@ class Data(object):
         show_sources
             If true, a red dot will be drawn in the location of each labeled
             source.
+        predictions
+            An array of [x, y] prediction locations to show.
         """
         import cv2 as cv
 
         image = self.maps[index]
 
+        # convert to RGB
+        image = np.transpose(np.tile([image], (3, 1, 1)), [1, 2, 0]).copy()
+
         if show_sources:
-            image = np.transpose(np.tile([image], (3, 1, 1)), [1, 2, 0])
             for x,y in self.coords[index]:
-                image[y][x] = [0.0, 0.0, 1.0]
+                image[y][x] = [0.0, 1.0, 1.0]
+                cv.circle(image, (int(x), int(y)), 3, (0, 255, 255))
+
+        if predictions is not None:
+            for x,y in predictions:
+                image[int(y)][int(x)] = [0.0, 0.0, 1.0]
+                cv.circle(image, (int(x), int(y)), 3, (0, 0, 255))
 
         cv.imwrite(filename, image*255)
 
@@ -258,3 +278,29 @@ class Data(object):
             first = last
 
         return sets
+
+    def patch_image(self, index):
+        """
+        Returns an array of image patches and patch offsets for the specified
+        image.
+
+        index
+            The index of the image to patch.
+        """
+        import numpy as np
+
+        reshaped_patches = []
+        patches, patch_offsets = generate_patches(self.maps[index][0], (224, 224), 4)
+        for j in range(0, len(patches)):
+            reshaped_patches.append([patches[j]])
+        return np.array(reshaped_patches), np.array(patch_offsets)
+
+    def get_image(self, index):
+        """
+        Returns the image, source coordinates and source fluxs of the specified
+        image.
+
+        index
+            The index of the image to get.
+        """
+        return self.maps[index], self.coords[index], self.brights[index]

@@ -350,6 +350,8 @@ class PpnModel(object):
         batch_size = config['batch_size']
         train_size = len(train_set['x'])
 
+        print('\nStarting training...\n')
+
         # perform epochs
         for t in range(1, config['epochs'] + 1):
 
@@ -449,7 +451,7 @@ class PpnModel(object):
             print('Error: can\'t evaluate an uninitialized model (did you train or load weights?)')
 
         # feed the test set to the feed iterator
-        session.run(self.feed_iterator, {
+        self.session.run(self.feed_iterator, {
             self.ph_batch_size: batch_size,
             self.in_image: test_set['x'],
             self.in_conf: test_set['y_conf'],
@@ -461,7 +463,7 @@ class PpnModel(object):
         count = 0
         try:
             while True:
-                cl, rl, pr, rc = session.run(
+                cl, rl, pr, rc = self.session.run(
                     (self.loss_conf, self.loss_reg,
                      self.precision, self.recall))
                 conf_loss += cl
@@ -482,46 +484,46 @@ class PpnModel(object):
                %(conf_loss, reg_loss, prec, rec))
 
 
-    # def infer(self, session, images, offsets, max_batch=128):
-    #     """
-    #     Loads the saved checkpoint and evaluates the image patches.
+    def infer(self, images, offsets, config):
+        """
+        Evaluates a set of image patches.
 
-    #     session
-    #         A tf.Session.
-    #     images
-    #         The list of input image patches, (?, img_size, img_size).
-    #     offsets
-    #         The (x, y) offsets of the image corners, (?, 2).
-    #     max_batch
-    #         The maximum number of patches that should be fed to the PPN
-    #         at a time.
-    #     """
-    #     if images.shape[0] > max_batch:
-    #         # split into multiple groups
-    #         images = np.array_split(images, np.ceil(images.shape[0]/max_batch))
-    #         offsets = np.array_split(offsets, np.ceil(offsets.shape[0]/max_batch))
-    #         all_points = np.zeros((0, 2), dtype=np.float32)
-    #         for i in range(0, len(images)):
-    #             # initialize iterator with images
-    #             session.run(self.feed_iterator, {
-    #                 self.feed_image: images[i],
-    #                 self.ph_batch_size: images[i].shape[0]
-    #             })
-    #             # return results
-    #             pred_points = session.run(self.sup_points, {
-    #                 self.in_offsets: offsets[i]
-    #             })
-    #             all_points = np.concatenate([all_points, pred_points])
-    #         return all_points
-    #     else:
-    #         # initialize iterator with images
-    #         session.run(self.feed_iterator, {
-    #             self.feed_image: images,
-    #             self.ph_batch_size: len(images)
-    #         })
-    #         # return results
-    #         pred_points = session.run(self.sup_points, {self.in_offsets: offsets})
-    #         return pred_points
+        images
+            The list of input image patches, (?, img_size, img_size).
+        offsets
+            The (x, y) offsets of the image corners, (?, 2).
+        config
+            The configuration dictionary. See ppn.config.ppn_config.
+        """
+        import numpy as np
+
+        max_batch = config['batch_size']
+        if images.shape[0] > max_batch:
+            # split into multiple groups
+            images = np.array_split(images, np.ceil(images.shape[0]/max_batch))
+            offsets = np.array_split(offsets, np.ceil(offsets.shape[0]/max_batch))
+            all_points = np.zeros((0, 2), dtype=np.float32)
+            for i in range(0, len(images)):
+                # initialize iterator with images
+                self.session.run(self.feed_iterator, {
+                    self.in_image: images[i],
+                    self.ph_batch_size: images[i].shape[0]
+                })
+                # return results
+                pred_points = self.session.run(self.sup_points, {
+                    self.in_offsets: offsets[i]
+                })
+                all_points = np.concatenate([all_points, pred_points])
+            return all_points
+        else:
+            # initialize iterator with images
+            self.session.run(self.feed_iterator, {
+                self.in_image: images,
+                self.ph_batch_size: len(images)
+            })
+            # return results
+            pred_points = self.session.run(self.sup_points, {self.in_offsets: offsets})
+            return pred_points
 
 
     # def infer_no_nms(self, session, images, offsets, max_batch=128):
@@ -669,4 +671,4 @@ class PpnModel(object):
 
         # reload weights
         save_path = os.path.join(save_dir, 'best_validation')
-        saver.restore(sess=session, save_path=save_path)
+        saver.restore(sess=self.session, save_path=save_path)

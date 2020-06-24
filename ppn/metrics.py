@@ -1,15 +1,26 @@
-# sips.metrics
-# author: tilleyd
+# ppn.metrics
+# author: Duncan Tilley
 
-import numpy as np
+def precision_recall(pred_coords, gt_coords, config):
+    """
+    Calculates the precision and recall scores for an image.
 
-def precision_recall(pred_points, gt_points, thr):
-    # square threshold
+    pred_coords
+        A list of (x, y) pairs of predicted source coordinates.
+    gt_coords
+        A list of (x, y) ground-truth source coordinates.
+    config
+        The configuration dictionary. See ppn.config.ppn_config.
+    """
+    import numpy as np
+
+    # square the distance threshold
+    thr = config['dist_thr'] * (config['image_size'] / config['feature_size'])
     thr *= thr
 
     # calculate squared difference hits
-    num_pred = len(pred_points)
-    num_gt = len(gt_points)
+    num_pred = len(pred_coords)
+    num_gt = len(gt_coords)
     if num_pred == 0 or num_gt == 0:
         return 0.0, 0.0
 
@@ -17,9 +28,9 @@ def precision_recall(pred_points, gt_points, thr):
 
     for j in range(0, num_pred):
         for k in range(0, num_gt):
-            xdiff = pred_points[j][0] - gt_points[k][0]
+            xdiff = pred_coords[j][0] - gt_coords[k][0]
             xdiff *= xdiff
-            ydiff = pred_points[j][1] - gt_points[k][1]
+            ydiff = pred_coords[j][1] - gt_coords[k][1]
             ydiff *= ydiff
             diff[j][k] = xdiff + ydiff
 
