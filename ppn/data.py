@@ -183,7 +183,7 @@ class Data(object):
         import numpy as np
         import cv2 as cv
 
-        image = self.maps[index]
+        image = self.maps[index][0]
 
         if show_sources:
             image = np.transpose(np.tile([image], (3, 1, 1)), [1, 2, 0])

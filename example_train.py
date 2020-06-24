@@ -19,13 +19,12 @@ print('\nCreating data labels...\n')
 train = ppn.data.create_labeled_set(train, config)
 val = ppn.data.create_labeled_set(val, config)
 test = ppn.data.create_labeled_set(test, config)
-print('\nCreating model...\n')
 
 # create the PPN model
+print('\nCreating model...\n')
 model = ppn.model.PpnModel(ppn.model.get_resnet_constructor(resnet_config), config)
 
-print('\nStarting training...\n')
-
 # train and evaluate the model on the dataset
+print('\nStarting training...\n')
 model.train(train, val, config)
 # model.test(test, config)
