@@ -19,8 +19,11 @@ def ppn_config():
         "training": True,
         "epochs": 5,
         "batch_size": 16,
-        "N_conf": 1.0,
-        "N_reg": 1.0,
+        "N_conf": 16.0,
+        "N_reg": 16.0,
+        "loss_function": 'focal', # or 'crossentropy'
+        "focal_gamma": 2.0,
+        "focal_pos_weight":  0.25,
         "r_far": np.sqrt(0.5*0.5 + 0.5*0.5),
         "r_near": np.sqrt(0.5*0.5 + 0.5*0.5),
         "r_nms": 0.45,

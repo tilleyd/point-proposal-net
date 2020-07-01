@@ -18,6 +18,42 @@ def _conv2d(inputs, filters, kernel, drop_rate, stride=1):
         data_format='channels_first')
     return tf.nn.dropout(x, rate=drop_rate)
 
+def _binary_focal_loss_with_logits(labels, logits, gamma, pos_weight=None):
+    """
+    Compute focal loss from logits.
+
+    Adapted from github.com/artemmavrin/focal-loss for TF 1.14.
+    """
+    import tensorflow.compat.v1 as tf
+    # Compute probabilities for the positive class
+    p = tf.math.sigmoid(logits)
+
+    # The labels and logits tensors' shapes need to be the same for the
+    # built-in cross-entropy functions. Since we want to allow broadcasting,
+    # we do some checks on the shapes and possibly broadcast explicitly
+    # Note: tensor.shape returns a tf.TensorShape, whereas tf.shape(tensor)
+    # returns an int tf.Tensor; this is why both are used below
+    labels_shape = labels.shape
+    logits_shape = logits.shape
+    if not labels_shape.is_fully_defined() or labels_shape != logits_shape:
+        labels_shape = tf.shape(labels)
+        logits_shape = tf.shape(logits)
+        shape = tf.broadcast_dynamic_shape(labels_shape, logits_shape)
+        labels = tf.broadcast_to(labels, shape)
+        logits = tf.broadcast_to(logits, shape)
+    if pos_weight is None:
+        loss_func = tf.nn.sigmoid_cross_entropy_with_logits
+    else:
+        from functools import partial
+        loss_func = partial(tf.nn.weighted_cross_entropy_with_logits,
+                            pos_weight=pos_weight)
+    loss = loss_func(labels=labels, logits=logits)
+    modulation_pos = (1 - p) ** gamma
+    modulation_neg = p ** gamma
+    mask = tf.dtypes.cast(labels, dtype=tf.bool)
+    modulation = tf.where(mask, modulation_pos, modulation_neg)
+    return modulation * loss
+
 def _loss_function(conf_gt, conf_logits, reg_gt, reg_logits, config):
     """
     Creates the PPN loss function.
@@ -41,7 +77,7 @@ def _loss_function(conf_gt, conf_logits, reg_gt, reg_logits, config):
     import tensorflow.compat.v1 as tf
 
     # mask out the invalid anchors:
-    #     only penalize confidence of valid (i.e. not ingored) anchors
+    #     only penalize confidence of valid (i.e. not ignored) anchors
     #     only penalize points of positive anchors
     valid_mask = tf.stop_gradient(tf.not_equal(conf_gt, -1))
     pos_mask = tf.stop_gradient(tf.equal(conf_gt, 1))
@@ -52,11 +88,21 @@ def _loss_function(conf_gt, conf_logits, reg_gt, reg_logits, config):
     pos_reg_gt = tf.boolean_mask(reg_gt, pos_mask)
     pos_reg_logits = tf.boolean_mask(reg_logits, pos_mask)
 
-    # get the confidence loss using sigmoidal cross entropy
-    conf_loss = tf.nn.sigmoid_cross_entropy_with_logits(
-        labels=tf.cast(valid_conf_gt, tf.float32),
-        logits=valid_conf_logits)
+    if config['loss_function'] == 'crossentropy':
+        # get the confidence loss using sigmoidal cross entropy
+        conf_loss = tf.nn.sigmoid_cross_entropy_with_logits(
+            labels=tf.cast(valid_conf_gt, tf.float32),
+            logits=valid_conf_logits)
+    else:
+        # get the confidence loss using focal loss
+        conf_loss = _binary_focal_loss_with_logits(
+            labels=tf.cast(valid_conf_gt, tf.float32),
+            logits=valid_conf_logits,
+            gamma=config['focal_gamma'],
+            pos_weight=config['focal_pos_weight'])
+
     conf_loss = tf.reduce_sum(conf_loss)
+    # zero out the loss for invalid anchors (not close enough, not far enough)
     conf_loss = tf.where(tf.equal(num_valid, 0),
                             0.0,
                             conf_loss,
