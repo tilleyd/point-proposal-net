@@ -295,6 +295,12 @@ class Data(object):
             reshaped_patches.append([patches[j]])
         return np.array(reshaped_patches), np.array(patch_offsets)
 
+    def num_images(self):
+        """
+        Returns the number of images.
+        """
+        return len(self.maps)
+
     def get_image(self, index):
         """
         Returns the image, source coordinates and source fluxs of the specified

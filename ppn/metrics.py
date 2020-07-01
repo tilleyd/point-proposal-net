@@ -1,7 +1,7 @@
 # ppn.metrics
 # author: Duncan Tilley
 
-def precision_recall(pred_coords, gt_coords, config):
+def precision_recall(pred_coords, gt_coords, gt_J, config):
     """
     Calculates the precision and recall scores for an image.
 
@@ -9,6 +9,8 @@ def precision_recall(pred_coords, gt_coords, config):
         A list of (x, y) pairs of predicted source coordinates.
     gt_coords
         A list of (x, y) ground-truth source coordinates.
+    gt_J
+        A list of fluxes (J) for each ground-truth point source.
     config
         The configuration dictionary. See ppn.config.ppn_config.
     """
@@ -36,12 +38,18 @@ def precision_recall(pred_coords, gt_coords, config):
 
     diff_pr = diff.copy()
 
+    # count hits by J
+    recall_J = {}
+    for j in gt_J:
+        recall_J[j] = 0
+
     # calculate recall
     recall_hits = 0
     for c in range(0, diff.shape[1]):
         col = diff[:, c]
         nearest = np.argmin(col)
         if col[nearest] < thr:
+            recall_J[gt_J[c]] += 1
             recall_hits += 1
             diff[nearest, :].fill(float('inf'))
 
@@ -54,4 +62,4 @@ def precision_recall(pred_coords, gt_coords, config):
             prec_hits += 1
             diff_pr[:, nearest].fill(float('inf'))
 
-    return prec_hits / num_pred, recall_hits / num_gt
+    return prec_hits / num_pred, recall_hits / num_gt, recall_J
