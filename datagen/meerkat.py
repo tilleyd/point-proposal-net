@@ -3,7 +3,8 @@
 IMAGE_SIZE = 1024
 NUM_SOURCES = 200
 NUM_IMAGES = 1
-CENTRE_RA, CENTRE_DEC = (50.0, -30.0)
+RA_MIN, RA_MAX = (-50, 50)
+DEC_MIN, DEC_MAX = (-30, 50)
 
 OFFSET_RA = 1.1 # need to fine tune to fit sources into image
 OFFSET_DEC = 0.7
@@ -35,16 +36,6 @@ total_sources = sources_per_bin * len(bins)
 if NUM_SOURCES != total_sources:
     print('Warning: the number of sources is not divisible by the bins')
     print('         images will have %d/%d sources' %(total_sources, NUM_SOURCES))
-# create sky models
-for img in range(0, NUM_IMAGES):
-    with open('input/%d-skymodel.txt' %(img), 'w') as f:
-        f.write('#format: ra_d dec_d i\n')
-        for flux in bins:
-            for i in range(0, sources_per_bin):
-                ra = np.random.uniform(CENTRE_RA-OFFSET_RA, CENTRE_RA+OFFSET_RA)
-                dec = np.random.uniform(CENTRE_DEC-OFFSET_DEC, CENTRE_DEC+OFFSET_DEC)
-                f.write(' %.2f %.2f %.15f\n' %(ra, dec, flux * sigma))
-        f.write('~\n')
 
 #
 # create stimela recipe
@@ -61,6 +52,23 @@ recipe = stimela.Recipe(name='Make noise image populated with sources',
                         ms_dir=MSDIR,
                         JOB_TYPE='udocker')
 
+
+for img in range(0, NUM_IMAGES):
+
+	# determine field centre
+	centre_ra = np.random.uniform(RA_MIN, RA_MAX)
+	centre_dec = np.random.uniform(DEC_MIN, DEC_MAX)
+
+	# create sky model
+    with open('input/%d-skymodel.txt' %(img), 'w') as f:
+        f.write('#format: ra_d dec_d i\n')
+        for flux in bins:
+            for i in range(0, sources_per_bin):
+                ra = np.random.uniform(centre_ra-OFFSET_RA, centre_ra+OFFSET_RA)
+                dec = np.random.uniform(centre_dec-OFFSET_DEC, centre_dec+OFFSET_DEC)
+                f.write(' %.2f %.2f %.15f\n' %(ra, dec, flux * sigma))
+        f.write('~\n')
+
 # create empty measurement set (only once per set of images)
 recipe.add('cab/simms',
            'simms',
@@ -72,7 +80,7 @@ recipe.add('cab/simms',
                "freq0"     : '1400MHz', # starting frequency
                "dfreq"     : '2.0MHz', # channel width
                "nchan"     : 10, # number of channels
-               "direction" : 'J2000,%.1fdeg,%.1fdeg' %(CENTRE_RA, CENTRE_DEC), # telescope pointing target
+               "direction" : 'J2000,%.1fdeg,%.1fdeg' %(centre_ra, centre_dec), # telescope pointing target
                "feed"      : 'perfect R L',
                "pol"       : 'RR RL LR LL',
            },
