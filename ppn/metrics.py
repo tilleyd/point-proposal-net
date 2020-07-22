@@ -1,7 +1,7 @@
 # ppn.metrics
 # author: Duncan Tilley
 
-def precision_recall(pred_coords, gt_coords, gt_J, config):
+def precision_recall(pred_coords, gt_coords, gt_J, config, dist_thr=None):
     """
     Calculates the precision and recall scores for an image.
 
@@ -13,11 +13,15 @@ def precision_recall(pred_coords, gt_coords, gt_J, config):
         A list of fluxes (J) for each ground-truth point source.
     config
         The configuration dictionary. See ppn.config.ppn_config.
+    dist_thr
+        The distance threshold to use (r_tp). If None, the dist_thr value in
+        config is used.
     """
     import numpy as np
 
+    dist_thr = dist_thr if dist_thr is not None else config['dist_thr']
     # square the distance threshold
-    thr = config['dist_thr'] * (config['image_size'] / config['feature_size'])
+    thr = dist_thr * (config['image_size'] / config['feature_size'])
     thr *= thr
 
     # calculate squared difference hits
@@ -38,10 +42,15 @@ def precision_recall(pred_coords, gt_coords, gt_J, config):
 
     diff_pr = diff.copy()
 
-    # count hits by J
+    # use to count hits by J
     recall_J = {}
+    total_J = {}
     for j in gt_J:
         recall_J[j] = 0
+        if j in total_J:
+            total_J[j] += 1
+        else:
+            total_J[j] = 1
 
     # calculate recall
     recall_hits = 0
@@ -61,5 +70,9 @@ def precision_recall(pred_coords, gt_coords, gt_J, config):
         if row[nearest] < thr:
             prec_hits += 1
             diff_pr[:, nearest].fill(float('inf'))
+
+    # normalize recall by J
+    for j in recall_J.keys():
+        recall_J[j] = recall_J[j] / total_J[j]
 
     return prec_hits / num_pred, recall_hits / num_gt, recall_J

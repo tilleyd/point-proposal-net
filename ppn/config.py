@@ -12,18 +12,19 @@ def ppn_config():
         "feature_size": 7,
 
         # evaluation parameters
-        "dist_thr": 0.5,
+        "dist_thr": 0.4,
         "score_thr": 0.8,
 
         # training parameters
         "training": True,
-        "epochs": 5,
-        "batch_size": 16,
-        "N_conf": 16.0,
-        "N_reg": 16.0,
+        "epochs": 150,
+        "batch_size": 128,
+        "N_conf": 128.0,
+        "N_reg": 128.0,
         "loss_function": 'focal', # or 'crossentropy'
-        "focal_gamma": 2.0,
-        "focal_pos_weight":  0.25,
+        "focal_normalized": False,
+        "focal_gamma": 0.0,
+        "focal_pos_weight": 0.5,
         "r_far": np.sqrt(0.5*0.5 + 0.5*0.5),
         "r_near": np.sqrt(0.5*0.5 + 0.5*0.5),
         "r_nms": 0.45,

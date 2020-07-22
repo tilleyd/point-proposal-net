@@ -5,15 +5,18 @@
 # helper functions
 #
 
-def _conv2d(inputs, filters, kernel, drop_rate, stride=1):
+def _conv2d(inputs, filters, kernel, drop_rate, stride=1, bias_init=None):
     import tensorflow.compat.v1 as tf
+    if bias_init is None:
+        bias_init = tf.zeros_initializer()
     x = tf.layers.conv2d(
         inputs = inputs,
         filters=filters,
         kernel_size=kernel,
         strides=stride,
         padding='same',
-        use_bias=False,
+        use_bias=True,
+        bias_initializer=bias_init,
         kernel_initializer=tf.variance_scaling_initializer(),
         data_format='channels_first')
     return tf.nn.dropout(x, rate=drop_rate)
@@ -48,11 +51,15 @@ def _binary_focal_loss_with_logits(labels, logits, gamma, pos_weight=None):
         loss_func = partial(tf.nn.weighted_cross_entropy_with_logits,
                             pos_weight=pos_weight)
     loss = loss_func(labels=labels, logits=logits)
-    modulation_pos = (1 - p) ** gamma
-    modulation_neg = p ** gamma
-    mask = tf.dtypes.cast(labels, dtype=tf.bool)
-    modulation = tf.where(mask, modulation_pos, modulation_neg)
-    return modulation * loss
+    if abs(gamma) < 0.00001:
+        # no modulation (the loss returns NaN with ** 0)
+        return loss
+    else:
+        modulation_pos = (1 - p) ** gamma
+        modulation_neg = p ** gamma
+        mask = tf.dtypes.cast(labels, dtype=tf.bool)
+        modulation = tf.where(mask, modulation_pos, modulation_neg)
+        return modulation * loss
 
 def _loss_function(conf_gt, conf_logits, reg_gt, reg_logits, config):
     """
@@ -100,19 +107,22 @@ def _loss_function(conf_gt, conf_logits, reg_gt, reg_logits, config):
             logits=valid_conf_logits,
             gamma=config['focal_gamma'],
             pos_weight=config['focal_pos_weight'])
-
+        if config['focal_normalized']:
+            # normalize according to number of positive anchors
+            conf_loss = conf_loss / tf.cast(num_valid, tf.float32)
     conf_loss = tf.reduce_sum(conf_loss)
-    # zero out the loss for invalid anchors (not close enough, not far enough)
-    conf_loss = tf.where(tf.equal(num_valid, 0),
-                            0.0,
-                            conf_loss,
-                            name='conf_loss')
 
     # get the point loss using MSE
     point_loss = tf.losses.mean_squared_error(
         labels=pos_reg_gt,
         predictions=pos_reg_logits,
         reduction=tf.losses.Reduction.SUM)
+
+    # zero out the losses if there were no valid points
+    conf_loss = tf.where(tf.equal(num_valid, 0),
+                            0.0,
+                            conf_loss,
+                            name='conf_loss')
     point_loss = tf.where(tf.equal(num_pos, 0),
                             0.0,
                             point_loss,
@@ -144,7 +154,8 @@ def _prec_rec(conf_gt, conf_out, reg_gt, reg_out, config):
     """
     import tensorflow.compat.v1 as tf
 
-    score_thr, dist_thr = config['dist_thr'], config['score_thr']
+    score_thr = config['score_thr']
+    dist_thr = config['dist_thr']
 
     # mask positive outputs and ground truths
     gt_pos_mask = tf.equal(conf_gt, 1)
@@ -261,12 +272,12 @@ class PpnModel(object):
             train_dataset = tf.data.Dataset \
                     .from_tensor_slices((self.in_image, self.in_conf, self.in_reg)) \
                     .shuffle(self.ph_train_size) \
-                    .batch(self.ph_batch_size, drop_remainder=False)
+                    .batch(self.ph_batch_size, drop_remainder=True)
             feed_dataset = tf.data.Dataset \
                     .from_tensor_slices((self.in_image,
                                         self.in_conf,
                                         self.in_reg)) \
-                    .batch(self.ph_batch_size, drop_remainder=False)
+                    .batch(self.ph_batch_size, drop_remainder=True)
             iterator = tf.data.Iterator.from_structure(train_dataset.output_types,
                                                        train_dataset.output_shapes)
             self.it_image, self.it_conf, self.it_reg = iterator.get_next()
@@ -290,22 +301,28 @@ class PpnModel(object):
         # set up the PPN layers
         x = _conv2d(inputs=x, filters=512, kernel=3, drop_rate=self.ph_drop_rate)
 
-        conf = _conv2d(inputs=x, filters=1, kernel=1, drop_rate=self.ph_drop_rate)
+        if config['loss_function'] != 'crossentropy' or config['focal_gamma'] < 0.00001:
+            # no focal loss, use zero-initialized biases
+            conf = _conv2d(inputs=x, filters=1, kernel=1, drop_rate=self.ph_drop_rate)
+        else:
+            # focal loss, initialize biases to -log((1-pi)/pi) with pi=0.01
+            conf = _conv2d(inputs=x, filters=1, kernel=1, drop_rate=self.ph_drop_rate,
+                           bias_init=tf.constant_initializer(-1.99563519))
         # reshape from (?, 1, fh, fw) to (?, fh, fw)
-        conf = tf.squeeze(tf.transpose(conf, [0, 2, 3, 1]))
+        conf_logits = tf.squeeze(tf.transpose(conf, [0, 2, 3, 1]))
 
         reg = _conv2d(inputs=x, filters=2, kernel=1, drop_rate=self.ph_drop_rate)
         # reshape from (?, 2, fh, fw) to (?, fh, fw, 2)
         reg = tf.transpose(reg, [0, 2, 3, 1])
 
         self.trainable = training
-        self.out_conf = tf.nn.sigmoid(conf)
+        self.out_conf = tf.nn.sigmoid(conf_logits)
         self.out_reg = reg
         self.initialized = False
 
         if training:
             # set up labels, loss and optimiser
-            loss_conf, loss_reg = _loss_function(self.it_conf, self.out_conf,
+            loss_conf, loss_reg = _loss_function(self.it_conf, conf_logits,
                                                  self.it_reg, self.out_reg,
                                                  config)
             optimiser = tf.train.AdamOptimizer()
@@ -348,7 +365,6 @@ class PpnModel(object):
         reg_list = tf.reshape(reg_list, (num_img*ft_size*ft_size, 2))
 
         # apply NMS and store results before and after
-        radius = config['r_nms'] * step
         self.unsup_points, self.unsup_conf = reg_list, conf_list
         self.sup_points, self.sup_conf = _nms(reg_list,
                                               conf_list,
@@ -498,7 +514,7 @@ class PpnModel(object):
 
         # feed the test set to the feed iterator
         self.session.run(self.feed_iterator, {
-            self.ph_batch_size: batch_size,
+            self.ph_batch_size: config['batch_size'],
             self.in_image: test_set['x'],
             self.in_conf: test_set['y_conf'],
             self.in_reg: test_set['y_reg']
@@ -525,7 +541,7 @@ class PpnModel(object):
             prec /= count
             rec /= count
 
-        print('test:')
+        print('test')
         print('\tcl=%.4f\trl=%.4f\tprc=%.4f\trcl=%.4f'
                %(conf_loss, reg_loss, prec, rec))
 

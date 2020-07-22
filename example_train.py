@@ -4,11 +4,16 @@
 # This script shows how to use the PPN module to train a model.
 
 import tensorflow.compat.v1 as tf
-tf.logging.set_verbosity(tf.logging.ERROR)
-
+import numpy as np
 import ppn.config
 import ppn.model
 import ppn.data
+
+tf.logging.set_verbosity(tf.logging.ERROR)
+
+# set these for reproducible results
+#np.random.seed(1)
+#tf.set_random_seed(1)
 
 # create the base and model configs
 config = ppn.config.ppn_config()
@@ -16,7 +21,7 @@ resnet_config = ppn.config.resnet_config()
 
 # create the datasets
 data = ppn.data.Data(patch_images=True)
-train, val, test = data.split_data([0.7, 0.15, 0.15], shuffle=True)
+train, val, test = data.split_data([0.7, 0.15, 0.15], augment=[True, False, False], shuffle=False)
 
 print('\nCreating data labels...\n')
 train = ppn.data.create_labeled_set(train, config)

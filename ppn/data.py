@@ -138,7 +138,7 @@ class Data(object):
                         img_brights.append( float(l[2]) )
 
             if not patch_images:
-                self.maps.append([img])
+                self.maps.append(np.array([img]))
                 self.coords.append(img_coords)
                 self.brights.append(img_brights)
             else:
@@ -163,7 +163,7 @@ class Data(object):
                                                                        img_brights,
                                                                        x, y,
                                                                        224, 224)
-                    self.maps.append([patches[j]])
+                    self.maps.append(np.array([patches[j]]))
                     self.coords.append(patch_coords)
                     self.brights.append(patch_brights)
 
@@ -237,9 +237,9 @@ class Data(object):
 
         cv.imwrite(filename, image*255)
 
-    def split_data(self, fractions, shuffle=False):
+    def split_data(self, fractions, augment=None, shuffle=False):
         """
-        Splits the data into two sets.
+        Splits the data into sets.
 
         Returns a list of dictionaries with the keys 'maps', 'coords' and
         'brights'.
@@ -247,16 +247,30 @@ class Data(object):
         fraction
             A list of fractions of the set to allocate to each corresponding
             dictionary.
+        augment
+            A list of booleans. If true, the set at that index will be augmented
+            by flipping images (effectively quadrupaling the size).
         shuffle
             Whether the samples should be shuffled, otherwise the first
             set of samples will be used in order for the first set.
         """
+        import numpy as np
+
+        def rotate_image(img, coords):
+            size = img[0].shape[0]
+            img = np.array([np.rot90(img[0])])
+            rot_coords = []
+            for x, y in coords:
+                ny = size - x
+                nx = y
+                rot_coords.append((nx, ny))
+            return img, rot_coords
+
         first = {}
         second = {}
 
         m, c, b = self.maps, self.coords, self.brights
         if shuffle:
-            import numpy as np
             permute = np.random.permutation(len(m))
             m = [m[i] for i in permute]
             c = [c[i] for i in permute]
@@ -266,14 +280,38 @@ class Data(object):
 
         sets = []
         first = 0
-        for p in fractions:
+        for i in range(0, len(fractions)):
+            p = fractions[i]
+            a = augment[i] if augment is not None else False
             num = round(len(m) * p)
             last = first + num
-            print('%.2f from' %(p), first, 'to', last)
+            print('%.2f from' %(p), first, 'to', last - 1, ('(aug)' if a else ''))
+            maps = m[first:last]
+            coords = c[first:last]
+            brights = b[first:last]
+
+            if a:
+                anum = num * 4
+                amaps = []
+                acoords = []
+                abrights = []
+
+                for j in range(0, num):
+                    img, coord, bright = maps[j], coords[j], brights[j]
+                    for k in range(0, 4):
+                        amaps.append(img)
+                        acoords.append(coord)
+                        abrights.append(bright)
+                        img, coord = rotate_image(img, coord)
+
+                maps = amaps
+                coords = acoords
+                brights = abrights
+
             sets.append({
-                'maps': m[first:last],
-                'coords': c[first:last],
-                'brights': b[first:last]
+                'maps': maps,
+                'coords': coords,
+                'brights': brights
             })
             first = last
 
