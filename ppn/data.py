@@ -134,7 +134,7 @@ class Data(object):
                     x, y = float(l[0]), float(l[1])
                     if x >= 0 and x < imgw and y >= 0 and y < imgh:
                         source_count += 1
-                        img_coords.append( (int(np.round(x)), int(np.round(y))) )
+                        img_coords.append( (int(x), int(y)) )
                         img_brights.append( float(l[2]) )
 
             if not patch_images:
@@ -193,18 +193,19 @@ class Data(object):
         if show_sources:
             for x,y in self.coords[index]:
                 image[y][x] = [0.0, 1.0, 1.0]
-                cv.circle(image, (int(x), int(y)), 3, (0, 255, 255))
+                cv.circle(image, (int(x), int(y)), 3, (0, 165, 255))
 
         if predictions is not None:
             for x,y in predictions:
-                image[int(y)][int(x)] = [0.0, 0.0, 1.0]
-                cv.circle(image, (int(x), int(y)), 3, (0, 0, 255))
+                if x >= 0 and x < image.shape[1] and y >= 0 and y < image.shape[0]:
+                    image[int(y)][int(x)] = [0.0, 0.0, 1.0]
+                    cv.circle(image, (int(x), int(y)), 3, (0, 0, 255))
 
         cv.namedWindow('ppn-image', cv.WINDOW_AUTOSIZE)
         cv.imshow('ppn-image', image)
         cv.waitKey()
 
-    def save_image(self, filename, index, show_sources=False, predictions=None):
+    def save_image(self, filename, index, show_sources=False, predictions=None, size=None):
         """
         Saves the image at the given index to disk.
 
@@ -217,10 +218,13 @@ class Data(object):
             source.
         predictions
             An array of [x, y] prediction locations to show.
+        size
+            If not None, a sub-image at the (0, 0) corner will be taken of size (size, size).
         """
         import cv2 as cv
+        import numpy as np
 
-        image = self.maps[index]
+        image = self.maps[index][0]
 
         # convert to RGB
         image = np.transpose(np.tile([image], (3, 1, 1)), [1, 2, 0]).copy()
@@ -228,14 +232,15 @@ class Data(object):
         if show_sources:
             for x,y in self.coords[index]:
                 image[y][x] = [0.0, 1.0, 1.0]
-                cv.circle(image, (int(x), int(y)), 3, (0, 255, 255))
+                cv.circle(image, (int(x), int(y)), 4, (0, 255, 255), thickness=2)
 
         if predictions is not None:
             for x,y in predictions:
-                image[int(y)][int(x)] = [0.0, 0.0, 1.0]
-                cv.circle(image, (int(x), int(y)), 3, (0, 0, 255))
+                if x >= 0 and x < image.shape[1] and y >= 0 and y < image.shape[0]:
+                    image[int(y)][int(x)] = [0.0, 0.0, 1.0]
+                    cv.circle(image, (int(x), int(y)), 3, (0, 0, 255))
 
-        cv.imwrite(filename, image*255)
+        cv.imwrite(filename, (image*255)[:size,:size])
 
     def split_data(self, fractions, augment=None, shuffle=False):
         """
@@ -332,6 +337,30 @@ class Data(object):
         for j in range(0, len(patches)):
             reshaped_patches.append([patches[j]])
         return np.array(reshaped_patches), np.array(patch_offsets)
+
+    def scale_and_patch_image(self, index, scale):
+        """
+        First scales an image by tiling it along both axes, then returns an
+        array of image patches and patch offsets for the specified image.
+
+        index
+            The index of the image to patch.
+        scale
+            The factor for scaling, e.g. 2 will have twice the width and twice
+            the height.
+        """
+        import numpy as np
+        import time
+        scale = int(scale)
+        img = self.maps[index][0]
+
+        before = time.time()
+        reshaped_patches = []
+        patches, patch_offsets = generate_patches(np.tile(img, [scale, scale]), (224, 224), 4)
+        for j in range(0, len(patches)):
+            reshaped_patches.append([patches[j]])
+        after = time.time()
+        return np.array(reshaped_patches), np.array(patch_offsets), after - before
 
     def num_images(self):
         """

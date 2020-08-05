@@ -27,7 +27,7 @@ def ppn_config():
         "focal_pos_weight": 0.5,
         "r_far": np.sqrt(0.5*0.5 + 0.5*0.5),
         "r_near": np.sqrt(0.5*0.5 + 0.5*0.5),
-        "r_nms": 0.45,
+        "r_nms": 0.35,
         "checkpoint_directory": 'checkpoints/',
         "drop_rate": 0.2
     }
@@ -40,5 +40,5 @@ def resnet_config():
     return {
         "initial_filters": 32,
         "initial_kernel": 7,
-        "structure": [16, 8, 4, 2]
+        "structure": [8, 4, 2, 1]
     }

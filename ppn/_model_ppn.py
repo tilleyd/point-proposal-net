@@ -588,123 +588,78 @@ class PpnModel(object):
             return pred_points
 
 
-    # def infer_no_nms(self, session, images, offsets, max_batch=128):
-    #     """
-    #     Loads the saved checkpoint and evaluates the image patches without NMS.
+    def benchmark(self, images, offsets, config):
+        """
+        Evaluates the image patches, returning the times taken to evaluate
+        without and with NMS.
 
-    #     session
-    #         A tf.Session.
-    #     images
-    #         The list of input image patches, (?, img_size, img_size).
-    #     offsets
-    #         The (x, y) offsets of the image corners, (?, 2).
-    #     max_batch
-    #         The maximum number of patches that should be fed to the PPN
-    #         at a time.
-    #     """
-    #     if images.shape[0] > max_batch:
-    #         # split into multiple groups
-    #         images = np.array_split(images, np.ceil(images.shape[0]/max_batch))
-    #         offsets = np.array_split(offsets, np.ceil(offsets.shape[0]/max_batch))
-    #         all_points = np.zeros((0, 2), dtype=np.float32)
-    #         all_confs = np.zeros((0), dtype=np.float32)
-    #         for i in range(0, len(images)):
-    #             # initialize iterator with images
-    #             session.run(self.feed_iterator, {
-    #                 self.feed_image: images[i],
-    #                 self.ph_batch_size: images[i].shape[0]
-    #             })
-    #             # return results
-    #             pred_points, pred_confs = session.run(
-    #                 (self.unsup_points, self.unsup_conf), {
-    #                 self.in_offsets: offsets[i]
-    #             })
-    #             all_points = np.concatenate([all_points, pred_points])
-    #             all_confs = np.concatenate([all_confs, pred_confs])
-    #         return all_points
-    #     else:
-    #         # initialize iterator with images
-    #         session.run(self.feed_iterator, {
-    #             self.feed_image: images,
-    #             self.ph_batch_size: len(images)
-    #         })
-    #         # return results
-    #         pred_points, pred_confs = session.run(
-    #                 (self.unsup_points, self.unsup_conf),
-    #                 {self.in_offsets: offsets}
-    #         )
-    #         return pred_points, pred_confs
+        images
+            The list of input image patches, (?, img_size, img_size).
+        offsets
+            The (x, y) offsets of the image corners, (?, 2).
+        config
+            The configuration dictionary. See ppn.config.ppn_config.
+        """
+        import numpy as np
+        import time
 
+        max_batch = config['batch_size']
+        if images.shape[0] > max_batch:
+            # split into multiple groups
+            images = np.array_split(images, np.ceil(images.shape[0]/max_batch))
+            offsets = np.array_split(offsets, np.ceil(offsets.shape[0]/max_batch))
 
-    # def benchmark(self, session, images, offsets, max_batch=128):
-    #     """
-    #     Loads the saved checkpoint and evaluates the image patches, returning
-    #     the times taken to evaluate different parts.
+            # perform without nms
+            before = time.time()
+            for i in range(0, len(images)):
+                self.session.run(self.feed_iterator, {
+                    self.in_image: images[i],
+                    self.ph_batch_size: images[i].shape[0]
+                })
+                self.session.run((self.out_reg, self.out_conf))
+            after = time.time()
+            without_nms_time = after - before
 
-    #     session
-    #         A tf.Session.
-    #     images
-    #         The list of input image patches, (?, img_size, img_size).
-    #     offsets
-    #         The (x, y) offsets of the image corners, (?, 2).
-    #     """
-    #     import time
+            # perform with nms
+            before = time.time()
+            all_points = np.zeros((0, 2), dtype=np.float32)
+            for i in range(0, len(images)):
+                self.session.run(self.feed_iterator, {
+                    self.in_image: images[i],
+                    self.ph_batch_size: images[i].shape[0]
+                })
+                pred_points = self.session.run(self.sup_points, {
+                    self.in_offsets: offsets[i]
+                })
+                all_points = np.concatenate([all_points, pred_points])
+            after = time.time()
+            with_nms_time = after - before
 
-    #     if images.shape[0] > max_batch:
-    #         # split into multiple groups
-    #         images = np.array_split(images, np.ceil(images.shape[0]/max_batch))
-    #         offsets = np.array_split(offsets, np.ceil(offsets.shape[0]/max_batch))
+            return without_nms_time, with_nms_time
 
-    #         # perform without nms
-    #         before = time.time()
-    #         for i in range(0, len(images)):
-    #             session.run(self.feed_iterator, {
-    #                 self.feed_image: images[i],
-    #                 self.ph_batch_size: images[i].shape[0]
-    #             })
-    #             session.run((self.out_reg, self.out_conf))
-    #         after = time.time()
-    #         without_nms_time = after - before
+        else:
 
-    #         # perform with nms
-    #         before = time.time()
-    #         all_points = np.zeros((0, 2), dtype=np.float32)
-    #         for i in range(0, len(images)):
-    #             session.run(self.feed_iterator, {
-    #                 self.feed_image: images[i],
-    #                 self.ph_batch_size: images[i].shape[0]
-    #             })
-    #             pred_points = session.run(self.sup_points, {
-    #                 self.in_offsets: offsets[i]
-    #             })
-    #             all_points = np.concatenate([all_points, pred_points])
-    #         after = time.time()
-    #         with_nms_time = after - before
+            # perform without nms
+            before = time.time()
+            self.session.run(self.feed_iterator, {
+                self.in_image: images,
+                self.ph_batch_size: len(images)
+            })
+            self.session.run((self.out_reg, self.out_conf))
+            after = time.time()
+            without_nms_time = after - before
 
-    #         return without_nms_time, with_nms_time
+            # perform with nms
+            before = time.time()
+            self.session.run(self.feed_iterator, {
+                self.in_image: images,
+                self.ph_batch_size: len(images)
+            })
+            self.session.run(self.sup_points, {self.in_offsets: offsets})
+            after = time.time()
+            with_nms_time = after - before
 
-    #     else:
-    #         # perform without nms
-    #         before = time.time()
-    #         session.run(self.feed_iterator, {
-    #             self.feed_image: images,
-    #             self.ph_batch_size: len(images)
-    #         })
-    #         session.run((self.out_reg, self.out_conf))
-    #         after = time.time()
-    #         without_nms_time = after - before
-
-    #         # perform with nms
-    #         before = time.time()
-    #         session.run(self.feed_iterator, {
-    #             self.feed_image: images,
-    #             self.ph_batch_size: len(images)
-    #         })
-    #         session.run(self.sup_points, {self.in_offsets: offsets})
-    #         after = time.time()
-    #         with_nms_time = after - before
-
-    #         return without_nms_time, with_nms_time
+            return without_nms_time, with_nms_time
 
 
     def load_weights(self, config):
